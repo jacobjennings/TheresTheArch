@@ -287,7 +287,9 @@ class ArchGenerator:
         
         # Get curve X position at this Y height
         xc = self.get_curve_x_at_y(y_feet)
-        yc = y_feet  # Y on curve is exactly y_feet since we solved for x
+        
+        # Get the ACTUAL curve Y at xc (should be close to y_feet but use actual value)
+        yc = self.catenary(xc)
         
         # Calculate normal at this curve position
         dy = self.catenary_prime(xc)
@@ -300,12 +302,10 @@ class ArchGenerator:
     def is_in_leg(self, x: int, y: int, z: int) -> bool:
         """
         Determine if a position is within the arch structure.
-        Uses a true 3D distance check against the triangular cross section.
         
-        ANTI-ALIASING: All parameters (curve position, normal, triangle size)
-        are computed from the integer Y block coordinate only. This ensures
-        all blocks at the same Y level use identical geometry, creating clean
-        horizontal bands instead of sawtooth artifacts.
+        Uses a hybrid approach:
+        1. Find the closest point on the curve (for accurate shape)
+        2. Use quantized triangle size (to prevent size-based aliasing)
         """
         # 1. Map Block Coordinate to Feet Space
         x_center_block = x - (self.width / 2)
@@ -319,13 +319,17 @@ class ArchGenerator:
         x_feet = x_center_block / self.girth_scale
         z_feet = z_center_block / self.girth_scale
         
-        # 2. Get curve data for this Y BLOCK level (quantized, same for all blocks at this Y)
-        xc, yc, nx, ny = self.get_curve_data_for_y_block(y)
-        
-        # Determine which leg we're checking (mirror X for left leg)
+        # 2. Find the CLOSEST point on the curve (original method - accurate shape)
         x_feet_abs = abs(x_feet)
+        xc, yc = self.get_closest_curve_point(x_feet_abs, y_feet)
         
         # 3. Calculate Cross Section Plane Coordinates (u, v)
+        # Normal vector at the curve point
+        dy = self.catenary_prime(xc)
+        norm_len = math.sqrt(dy * dy + 1)
+        nx = -dy / norm_len
+        ny = 1.0 / norm_len
+        
         # Vector from curve point to block point
         dx = x_feet_abs - xc
         dy_pt = y_feet - yc
@@ -335,7 +339,8 @@ class ArchGenerator:
         v = z_feet
         
         # 4. Triangle Check (SDF Method)
-        # Get quantized leg size for this Y BLOCK level
+        # ANTI-ALIASING: Use quantized leg size based on BLOCK Y coordinate
+        # This ensures consistent triangle size per Y level
         leg_size_blocks = self.get_quantized_leg_width_blocks(y)
         
         # Convert to feet
@@ -353,10 +358,9 @@ class ArchGenerator:
         
         dist = min(d1, min(d2, d3))
         
-        # Outer boundary: include blocks touching the surface
-        outer_margin = 0.5 * block_feet
-        
-        if dist < -outer_margin:
+        # Include blocks that are inside or touching the surface
+        # Use 0 margin - strict boundary
+        if dist < 0:
             return False
             
         # 5. Hollow Check
@@ -444,6 +448,119 @@ class ArchGenerator:
         scale_factor = sample_rate ** 3 # 3D sampling
         return {block: count * scale_factor for block, count in block_counts.items()}
     
+    def _enforce_monotonic_outer_thickness(self, blocks: Dict[Tuple[int, int, int], bool]) -> Dict[Tuple[int, int, int], bool]:
+        """
+        Post-processing: Enforce monotonically decreasing outer boundary going UP.
+        
+        The arch tapers as it goes up, so the outer boundary at each Y level should
+        never exceed the boundary at the Y level below. This is BOTTOM-UP only
+        (top-down doesn't make sense for an arch that's wider at base).
+        
+        Enforces:
+        1. Maximum radial distance (from vertical center axis) decreases with Y
+        2. Maximum Z extent (thickness) decreases with Y
+        
+        Does NOT enforce X extent globally (the two legs are on opposite sides).
+        """
+        if not blocks:
+            return blocks
+        
+        from collections import defaultdict
+        import math
+        
+        # Find bounds and center
+        all_x = [pos[0] for pos in blocks]
+        all_y = [pos[1] for pos in blocks]
+        all_z = [pos[2] for pos in blocks]
+        
+        center_x = (min(all_x) + max(all_x)) / 2.0
+        center_z = (min(all_z) + max(all_z)) / 2.0
+        min_y, max_y = min(all_y), max(all_y)
+        
+        # Group blocks by Y level
+        blocks_by_y = defaultdict(list)
+        for (x, y, z) in blocks:
+            blocks_by_y[y].append((x, z))
+        
+        # === Compute raw metrics at each Y level ===
+        max_radial_at_y = {}
+        max_z_at_y = {}
+        
+        for y in range(min_y, max_y + 1):
+            if y not in blocks_by_y:
+                continue
+            xz_list = blocks_by_y[y]
+            if not xz_list:
+                continue
+            
+            # Maximum radial distance from center axis
+            max_radial = max(math.sqrt((x - center_x)**2 + (z - center_z)**2) for x, z in xz_list)
+            max_radial_at_y[y] = max_radial
+            
+            # Maximum Z extent (thickness)
+            max_z = max(abs(z - center_z) for x, z in xz_list)
+            max_z_at_y[y] = max_z
+        
+        # === BOTTOM-UP ENFORCEMENT ===
+        # Each level's allowed extent must be <= level below
+        allowed_radial = {}
+        allowed_z = {}
+        
+        current_radial = float('inf')
+        current_z = float('inf')
+        
+        for y in range(min_y, max_y + 1):
+            if y in max_radial_at_y:
+                current_radial = min(max_radial_at_y[y], current_radial)
+            allowed_radial[y] = current_radial
+            
+            if y in max_z_at_y:
+                current_z = min(max_z_at_y[y], current_z)
+            allowed_z[y] = current_z
+        
+        # === Remove violating blocks ===
+        cleaned_blocks = {}
+        
+        for (x, y, z), val in blocks.items():
+            z_dist = abs(z - center_z)
+            radial_dist = math.sqrt((x - center_x)**2 + (z - center_z)**2)
+            
+            # Check radial constraint
+            if radial_dist > allowed_radial.get(y, float('inf')) + 0.1:
+                continue
+            
+            # Check Z constraint  
+            if z_dist > allowed_z.get(y, float('inf')) + 0.1:
+                continue
+                
+            cleaned_blocks[(x, y, z)] = val
+        
+        # === Remove disconnected floating blocks ===
+        if not cleaned_blocks:
+            return cleaned_blocks
+            
+        all_y_cleaned = [pos[1] for pos in cleaned_blocks]
+        min_y_cleaned = min(all_y_cleaned)
+        
+        connected = set()
+        to_check = set()
+        
+        for pos in cleaned_blocks:
+            if pos[1] == min_y_cleaned:
+                connected.add(pos)
+                to_check.add(pos)
+        
+        while to_check:
+            current = to_check.pop()
+            cx, cy, cz = current
+            for dx, dy, dz in [(-1,0,0), (1,0,0), (0,-1,0), (0,1,0), (0,0,-1), (0,0,1)]:
+                neighbor = (cx + dx, cy + dy, cz + dz)
+                if neighbor in cleaned_blocks and neighbor not in connected:
+                    connected.add(neighbor)
+                    to_check.add(neighbor)
+        
+        return {pos: val for pos, val in cleaned_blocks.items() if pos in connected}
+
     def generate(self, progress_callback=None) -> LitematicaSchematic:
         """Generate the Gateway Arch schematic with minimal bounding box."""
         # Track blocks for neighbor analysis
@@ -476,6 +593,12 @@ class ArchGenerator:
                 for y in range(max_y + 1):
                     if self.is_in_leg(x, y, z):
                         blocks_to_place[(x, y, z)] = False
+        
+        # POST-PROCESSING: Enforce monotonic outer thickness (Z everywhere, X near top)
+        if progress_callback:
+            progress_callback(0, 1, "Enforcing smooth boundary...")
+        
+        blocks_to_place = self._enforce_monotonic_outer_thickness(blocks_to_place)
         
         # Calculate MINIMAL bounding box from actual blocks
         if not blocks_to_place:

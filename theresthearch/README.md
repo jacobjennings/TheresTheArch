@@ -259,6 +259,10 @@ Output:
 - ~2,000,000 blocks
 - Generation time: ~30 minutes
 
+## Known Limitations
+
+**Manual Cleanup at Peak**: The generated arch may have minor "sawtooth" artifacts near the very top where the two legs meet. This is due to the discrete nature of Minecraft blocks approximating the continuous catenary curve. For best results, manually smooth out any irregular blocks at the peak after placing the schematic. This typically only affects a small area (10-20 blocks) at the apex.
+
 ## Performance Notes
 
 - **Memory**: Large arches (scale > 1.0) require several GB of RAM
