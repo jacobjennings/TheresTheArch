@@ -253,92 +253,111 @@ class ArchGenerator:
         # Floor to integer - this is the key quantization step
         return max(int(width_blocks), self.leg_top_width)
 
+    def get_curve_x_at_y(self, y_feet: float) -> float:
+        """
+        Get the X coordinate on the catenary curve for a given Y height.
+        Inverts y = A - B*cosh(C*x) to solve for x.
+        Returns the positive x (right leg); negate for left leg.
+        """
+        # y = A - B*cosh(C*x)
+        # cosh(C*x) = (A - y) / B
+        # C*x = acosh((A - y) / B)
+        # x = acosh((A - y) / B) / C
+        
+        arg = (self.A - y_feet) / self.B
+        
+        # Clamp to valid acosh domain (>= 1)
+        if arg < 1.0:
+            return 0.0  # At the peak, x = 0
+        
+        return math.acosh(arg) / self.C
+
+    def get_curve_data_for_y_block(self, y_block: int) -> Tuple[float, float, float, float]:
+        """
+        Get all curve data needed for a Y block level.
+        Returns (xc, yc, nx, ny) - curve position and normal direction.
+        
+        ANTI-ALIASING: This is computed ONCE per Y level, so all blocks at
+        the same height use identical curve position and normal, eliminating
+        the continuous variation that causes sawtooth artifacts.
+        """
+        # Convert Y block to Y feet
+        y_ratio = y_block / self.design_height
+        y_feet = self.y_min + y_ratio * self.y_range
+        
+        # Get curve X position at this Y height
+        xc = self.get_curve_x_at_y(y_feet)
+        yc = y_feet  # Y on curve is exactly y_feet since we solved for x
+        
+        # Calculate normal at this curve position
+        dy = self.catenary_prime(xc)
+        norm_len = math.sqrt(dy * dy + 1)
+        nx = -dy / norm_len
+        ny = 1.0 / norm_len
+        
+        return (xc, yc, nx, ny)
+
     def is_in_leg(self, x: int, y: int, z: int) -> bool:
         """
         Determine if a position is within the arch structure.
         Uses a true 3D distance check against the triangular cross section.
         
-        Anti-aliasing: Triangle size is quantized by Y block coordinate to prevent
-        sawtooth artifacts from continuous floating-point variations.
+        ANTI-ALIASING: All parameters (curve position, normal, triangle size)
+        are computed from the integer Y block coordinate only. This ensures
+        all blocks at the same Y level use identical geometry, creating clean
+        horizontal bands instead of sawtooth artifacts.
         """
         # 1. Map Block Coordinate to Feet Space
-        # X and Z are centered
         x_center_block = x - (self.width / 2)
         z_center_block = z - (self.width / 2)
         
-        # Y is from 0 to height
-        # Convert to Y feet
-        # Use design_height for ratio to preserve scale
+        # Y block to Y feet
         y_ratio = y / self.design_height
         y_feet = self.y_min + y_ratio * self.y_range
         
-        # Convert X, Z to feet
+        # X, Z in feet
         x_feet = x_center_block / self.girth_scale
-        z_feet = z_center_block / self.girth_scale 
+        z_feet = z_center_block / self.girth_scale
         
-        # 2. Find Closest Point on Centerline Curve (xc, yc)
-        # We do this for the "positive" X side (Right Leg)
-        # If we are in the Left Leg (negative X), we mirror X.
+        # 2. Get curve data for this Y BLOCK level (quantized, same for all blocks at this Y)
+        xc, yc, nx, ny = self.get_curve_data_for_y_block(y)
+        
+        # Determine which leg we're checking (mirror X for left leg)
         x_feet_abs = abs(x_feet)
         
-        xc, yc = self.get_closest_curve_point(x_feet_abs, y_feet)
-        
         # 3. Calculate Cross Section Plane Coordinates (u, v)
-        # u = Normal distance in X-Y plane
-        # v = Z distance (simple, as curve is planar)
-        
-        # Normal vector at xc: N = (-dy, 1) / sqrt(1+dy^2)
-        dy = self.catenary_prime(xc)
-        norm_len = math.sqrt(dy*dy + 1)
-        nx = -dy / norm_len
-        ny = 1.0 / norm_len
-        
         # Vector from curve point to block point
         dx = x_feet_abs - xc
         dy_pt = y_feet - yc
         
-        # Project onto normal
-        # Note: Positive u should point OUTWARDS (away from center of curvature)
-        # Center of curvature is "down". So Normal (pointing up/out) is correct.
+        # Project onto normal (u = radial distance, v = Z distance)
         u = dx * nx + dy_pt * ny
-        v = z_feet  # Z distance is just Z offset
+        v = z_feet
         
         # 4. Triangle Check (SDF Method)
-        # ANTI-ALIASING: Get leg size from BLOCK y-coordinate, not curve point
-        # This ensures all blocks at the same Y level use identical triangle size,
-        # eliminating sawtooth artifacts from continuous width variations.
+        # Get quantized leg size for this Y BLOCK level
         leg_size_blocks = self.get_quantized_leg_width_blocks(y)
         
-        # Convert to feet for the SDF calculation
+        # Convert to feet
         block_feet = 1.0 / self.girth_scale
         leg_size = leg_size_blocks * block_feet
         
-        # Define Triangle Vertices for SDF
-        # Orientation: Vertex IN (negative u), Flat Side OUT (positive u)
-        # Centroid at (0,0).
-        # H = Altitude of equilateral triangle
+        # Triangle SDF
         sqrt3 = 1.7320508
         H = leg_size * sqrt3 / 2.0
         
-        # Flat face at u = H/3. Normal (1,0).
-        # Dist1 = H/3 - u (Positive inside)
-        d1 = H / 3.0 - u
+        # Three edge distances (positive = inside)
+        d1 = H / 3.0 - u                            # Flat face
+        d2 = 0.5 * u - (sqrt3 / 2.0) * v + H / 3.0  # Top slant
+        d3 = 0.5 * u + (sqrt3 / 2.0) * v + H / 3.0  # Bottom slant
         
-        # Top Slant Edge: d2 = 1/2 u - sqrt3/2 v + H/3
-        d2 = 0.5 * u - (sqrt3 / 2.0) * v + H / 3.0
-        
-        # Bottom Slant Edge (Symmetric): d3 = 1/2 u + sqrt3/2 v + H/3
-        d3 = 0.5 * u + (sqrt3 / 2.0) * v + H / 3.0
-        
-        # Signed Distance to Triangle Boundary (Positive = Inside)
         dist = min(d1, min(d2, d3))
         
-        # Outer boundary check with small margin for block coverage
-        # Use 0.5 blocks - just enough to include blocks touching the surface
+        # Outer boundary: include blocks touching the surface
         outer_margin = 0.5 * block_feet
         
         if dist < -outer_margin:
-            return False  # Too far outside
+            return False
             
         # 5. Hollow Check
         if self.hollow:
