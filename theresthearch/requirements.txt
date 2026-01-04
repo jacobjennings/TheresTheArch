@@ -1,0 +1,8 @@
+# TheresTheArch Requirements
+
+# NBT library for Litematica format
+NBT>=1.5.0
+
+# Tkinter is included with Python on most systems
+# If missing, install python3-tk (Linux) or use Python installer with tcl/tk (Windows/Mac)
+
