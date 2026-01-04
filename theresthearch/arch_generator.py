@@ -362,19 +362,28 @@ class ArchGenerator:
         return False
     
     def calculate_dimensions(self) -> Dict[str, Tuple[int, int, int]]:
-        """Calculate arch dimensions."""
-        # Overall dimensions
-        overall_width = self.width
-        overall_height = self.height
-        overall_depth = self.width  # Depth equals width for square base
+        """Calculate estimated arch dimensions (minimal bounding box)."""
+        # The arch spans design_width in X plus leg extension on each side
+        # Leg extends outward by approximately 2/3 of triangle height
+        leg_extension = int(self.leg_base_width * 0.6)
         
-        # Base dimensions (each leg)
-        base_width = self.width
+        # X dimension: design_width + 2 * leg_extension (wide, spans both legs)
+        overall_width = self.design_width + 2 * leg_extension
+        
+        # Y dimension: design_height (base to peak)
+        overall_height = self.design_height
+        
+        # Z dimension: THIN - just the leg width at base (widest point)
+        # This is the key difference from before - Z should be small
+        overall_depth = self.leg_base_width + 2
+        
+        # Base dimensions (each leg's cross-section at ground level)
+        base_width = overall_width
         base_height = self.leg_base_width
         base_depth = self.leg_base_width
         
-        # Peak dimensions
-        peak_width = self.leg_top_width
+        # Peak dimensions (leg cross-section at top)
+        peak_width = self.leg_top_width * 2  # Two legs meet
         peak_height = self.leg_top_width
         peak_depth = self.leg_top_width
         
@@ -417,29 +426,7 @@ class ArchGenerator:
         return {block: count * scale_factor for block, count in block_counts.items()}
     
     def generate(self, progress_callback=None) -> LitematicaSchematic:
-        """Generate the Gateway Arch schematic."""
-        # Create schematic
-        schematic = LitematicaSchematic()
-        schematic.metadata.name = f"Gateway Arch (Scale {self.scale:.2f}×{self.girth_scale:.2f})"
-        schematic.metadata.author = "TheresTheArch Generator"
-        schematic.metadata.description = (
-            f"Gateway Arch with accurate triangular geometry. "
-            f"Height scale: {self.scale:.2f}, Width scale: {self.girth_scale:.2f}, "
-            f"{'Hollow' if self.hollow else 'Solid'}, "
-            f"Blocks: {self.primary_block}"
-        )
-        
-        # Create region
-        region = Region(
-            "Arch",
-            position=(0, 0, 0),
-            size=(self.width, self.height, self.width)
-        )
-        
-        # Pre-create block states
-        primary_state = BlockState(self.primary_block)
-        corner_state = BlockState(self.corner_block)
-        
+        """Generate the Gateway Arch schematic with minimal bounding box."""
         # Track blocks for neighbor analysis
         blocks_to_place: Dict[Tuple[int, int, int], bool] = {}
         
@@ -457,13 +444,8 @@ class ArchGenerator:
                     progress_callback(current, total_positions, "Calculating arch shape...")
                 
                 # Optimization: Check Z bounds before detailed check
-                # Max leg width is at base (feet) -> convert to blocks
-                # leg_base_width is in blocks? No, self.leg_base_width is blocks.
-                # But triangular profile is wider? 
-                # Side = S. Width in Z = S. Extent in X ~ S.
                 z_center = self.width / 2
-                # Increase Z check bounds to accommodate padding
-                if abs(z - z_center) > self.leg_base_width + 10: # Safe bound
+                if abs(z - z_center) > self.leg_base_width + 10:
                     continue
 
                 arch_height = self.get_arch_height_at_position(x)
@@ -476,7 +458,46 @@ class ArchGenerator:
                     if self.is_in_leg(x, y, z):
                         blocks_to_place[(x, y, z)] = False
         
-        # Second pass: identify corners and place blocks
+        # Calculate MINIMAL bounding box from actual blocks
+        if not blocks_to_place:
+            raise ValueError("No blocks to place - arch generation failed")
+        
+        min_x = min(pos[0] for pos in blocks_to_place)
+        max_x = max(pos[0] for pos in blocks_to_place)
+        min_y = min(pos[1] for pos in blocks_to_place)
+        max_y = max(pos[1] for pos in blocks_to_place)
+        min_z = min(pos[2] for pos in blocks_to_place)
+        max_z = max(pos[2] for pos in blocks_to_place)
+        
+        # Region size is the minimal cuboid that encompasses all blocks
+        region_size_x = max_x - min_x + 1
+        region_size_y = max_y - min_y + 1
+        region_size_z = max_z - min_z + 1
+        
+        # Create schematic with minimal bounds
+        schematic = LitematicaSchematic()
+        schematic.metadata.name = f"Gateway Arch (Scale {self.scale:.2f}×{self.girth_scale:.2f})"
+        schematic.metadata.author = "TheresTheArch Generator"
+        schematic.metadata.description = (
+            f"Gateway Arch with accurate triangular geometry. "
+            f"Height scale: {self.scale:.2f}, Width scale: {self.girth_scale:.2f}, "
+            f"{'Hollow' if self.hollow else 'Solid'}, "
+            f"Size: {region_size_x}×{region_size_y}×{region_size_z}, "
+            f"Blocks: {self.primary_block}"
+        )
+        
+        # Create region with MINIMAL bounding box (not a big cube)
+        region = Region(
+            "Arch",
+            position=(0, 0, 0),
+            size=(region_size_x, region_size_y, region_size_z)
+        )
+        
+        # Pre-create block states
+        primary_state = BlockState(self.primary_block)
+        corner_state = BlockState(self.corner_block)
+        
+        # Second pass: place blocks with offset to fit minimal bounding box
         total_blocks = len(blocks_to_place)
         current = 0
         
@@ -494,11 +515,16 @@ class ArchGenerator:
                 if (x+dx, y+dy, z+dz) in blocks_to_place:
                     neighbor_count += 1
             
-            # Place appropriate block
+            # Offset coordinates to start from (0, 0, 0)
+            offset_x = x - min_x
+            offset_y = y - min_y
+            offset_z = z - min_z
+            
+            # Place appropriate block at offset position
             if self.is_corner_block(x, y, z, neighbor_count):
-                region.set_block(x, y, z, corner_state)
+                region.set_block(offset_x, offset_y, offset_z, corner_state)
             else:
-                region.set_block(x, y, z, primary_state)
+                region.set_block(offset_x, offset_y, offset_z, primary_state)
         
         # Add region to schematic
         schematic.add_region(region)
