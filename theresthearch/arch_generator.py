@@ -109,16 +109,38 @@ class ArchGenerator:
         return max(int(width), self.leg_top_width)
 
     def get_leg_width_at_feet_y(self, y_feet: float) -> float:
-        """Get leg width in feet at a specific Y height (in feet)."""
-        if y_feet >= self.A: # Top of arch formula max
-             return self.LEG_TOP_WIDTH
+        """
+        Get leg width in feet at a specific Y height (in feet).
+        
+        IMPORTANT: Returns QUANTIZED width to prevent sawtooth aliasing.
+        The width is snapped to integer block units, ensuring clean transitions
+        as the arch tapers. Without quantization, continuous float widths cause
+        irregular stepping when rasterized to blocks.
+        """
+        if y_feet >= self.A:  # Top of arch formula max
+            return self.LEG_TOP_WIDTH
              
         # Map Y feet to ratio [0, 1]
         ratio = (y_feet - self.y_min) / self.y_range
         ratio = max(0.0, min(1.0, ratio))
         
-        width = self.LEG_BASE_WIDTH - (self.LEG_BASE_WIDTH - self.LEG_TOP_WIDTH) * ratio
-        return width
+        # Calculate continuous width first
+        continuous_width = self.LEG_BASE_WIDTH - (self.LEG_BASE_WIDTH - self.LEG_TOP_WIDTH) * ratio
+        
+        # QUANTIZE: Convert to block units, floor to integer, convert back to feet
+        # This ensures the triangle size only changes at clean block boundaries
+        # 1 block = 1/girth_scale feet
+        feet_per_block = 1.0 / self.girth_scale
+        
+        # Convert width from feet to blocks, quantize, convert back
+        width_in_blocks = continuous_width * self.girth_scale
+        quantized_blocks = math.floor(width_in_blocks)
+        
+        # Ensure we don't go below minimum
+        quantized_blocks = max(quantized_blocks, self.leg_top_width)
+        
+        # Convert back to feet
+        return quantized_blocks * feet_per_block
 
     def get_closest_curve_point(self, x_feet: float, y_feet: float) -> Tuple[float, float]:
         """
@@ -212,10 +234,32 @@ class ArchGenerator:
         # Safety factor of 2.5x base width + extra buffer.
         return max(0, y_blocks + int(self.leg_base_width * 2.5) + 20)
     
+    def get_quantized_leg_width_blocks(self, y_block: int) -> int:
+        """
+        Get the leg width in BLOCKS for a given Y block coordinate.
+        
+        This is the key anti-aliasing function: by quantizing leg width based on
+        the discrete block Y-coordinate (not the continuous curve point), we ensure
+        that all blocks at the same Y level use the same triangle size, eliminating
+        sawtooth artifacts.
+        """
+        # Calculate ratio based on block coordinate
+        ratio = y_block / self.design_height
+        ratio = max(0.0, min(1.0, ratio))
+        
+        # Linear interpolation from base to top width (in blocks)
+        width_blocks = self.leg_base_width - (self.leg_base_width - self.leg_top_width) * ratio
+        
+        # Floor to integer - this is the key quantization step
+        return max(int(width_blocks), self.leg_top_width)
+
     def is_in_leg(self, x: int, y: int, z: int) -> bool:
         """
         Determine if a position is within the arch structure.
         Uses a true 3D distance check against the triangular cross section.
+        
+        Anti-aliasing: Triangle size is quantized by Y block coordinate to prevent
+        sawtooth artifacts from continuous floating-point variations.
         """
         # 1. Map Block Coordinate to Feet Space
         # X and Z are centered
@@ -235,7 +279,6 @@ class ArchGenerator:
         # 2. Find Closest Point on Centerline Curve (xc, yc)
         # We do this for the "positive" X side (Right Leg)
         # If we are in the Left Leg (negative X), we mirror X.
-        is_right_leg = x_feet >= 0
         x_feet_abs = abs(x_feet)
         
         xc, yc = self.get_closest_curve_point(x_feet_abs, y_feet)
@@ -258,77 +301,54 @@ class ArchGenerator:
         # Note: Positive u should point OUTWARDS (away from center of curvature)
         # Center of curvature is "down". So Normal (pointing up/out) is correct.
         u = dx * nx + dy_pt * ny
-        v = z_feet # Z distance is just Z offset
+        v = z_feet  # Z distance is just Z offset
         
         # 4. Triangle Check (SDF Method)
-        # Get leg size (side length of equilateral triangle) at this station
-        leg_size = self.get_leg_width_at_feet_y(yc)
+        # ANTI-ALIASING: Get leg size from BLOCK y-coordinate, not curve point
+        # This ensures all blocks at the same Y level use identical triangle size,
+        # eliminating sawtooth artifacts from continuous width variations.
+        leg_size_blocks = self.get_quantized_leg_width_blocks(y)
+        
+        # Convert to feet for the SDF calculation
+        block_feet = 1.0 / self.girth_scale
+        leg_size = leg_size_blocks * block_feet
         
         # Define Triangle Vertices for SDF
         # Orientation: Vertex IN (negative u), Flat Side OUT (positive u)
         # Centroid at (0,0).
-        # H = Altitude
+        # H = Altitude of equilateral triangle
         sqrt3 = 1.7320508
         H = leg_size * sqrt3 / 2.0
         
         # Flat face at u = H/3. Normal (1,0).
         # Dist1 = H/3 - u (Positive inside)
-        d1 = H/3.0 - u
+        d1 = H / 3.0 - u
         
-        # Top Slant Edge (Vertex at -2H/3, 0 to Top-Right at H/3, H/sqrt(3))
-        # Normal vector pointing IN is (-1/2, -sqrt(3)/2) ? No.
-        # Triangle points Left. So Slant normals point Right-ish.
-        # Top Edge Normal: (-1/2, -sqrt(3)/2) points Left-Down (into triangle? no).
-        # Let's re-derive.
-        # Vertex V1 = (-2H/3, 0).
-        # Top Right V2 = (H/3, H/sqrt3).
-        # Vector V1->V2 = (H, H/sqrt3).
-        # Rotate -90 deg (CW) to get inward normal?
-        # (H/sqrt3, -H). Normalize: (1/2, -sqrt3/2).
-        # Line eq: 1/2 u - sqrt3/2 v + C = 0.
-        # At V1: 1/2(-2H/3) - 0 + C = 0 => -H/3 + C = 0 => C = H/3.
-        # d2 = 1/2 u - sqrt3/2 v + H/3.
-        # Check Center (0,0): H/3 (Positive).
-        # Check V1: 0.
-        # Check V2: H/6 - H/2 + H/3 = 0. Correct.
-        d2 = 0.5 * u - (sqrt3 / 2.0) * v + H/3.0
+        # Top Slant Edge: d2 = 1/2 u - sqrt3/2 v + H/3
+        d2 = 0.5 * u - (sqrt3 / 2.0) * v + H / 3.0
         
-        # Bottom Slant Edge (Symmetric)
-        # d3 = 1/2 u + sqrt3/2 v + H/3.
-        d3 = 0.5 * u + (sqrt3 / 2.0) * v + H/3.0
+        # Bottom Slant Edge (Symmetric): d3 = 1/2 u + sqrt3/2 v + H/3
+        d3 = 0.5 * u + (sqrt3 / 2.0) * v + H / 3.0
         
         # Signed Distance to Triangle Boundary (Positive = Inside)
         dist = min(d1, min(d2, d3))
         
-        # Convert block units to feet for margin calculations
-        block_feet = 1.0 / self.girth_scale
-        
-        # Relaxed Outer Boundary Check
-        # Allow blocks whose centers are slightly outside the perfect triangle
-        # to prevent aliasing/sawblade effects and ensure corners are filled.
-        # Increased margin to 1.0 blocks (conservative rasterization) to 
-        # completely eliminate gaps and sawtooth artifacts.
-        outer_margin = 1.0 * block_feet
+        # Outer boundary check with small margin for block coverage
+        # Use 0.5 blocks - just enough to include blocks touching the surface
+        outer_margin = 0.5 * block_feet
         
         if dist < -outer_margin:
-            return False # Too far outside
+            return False  # Too far outside
             
         # 5. Hollow Check
         if self.hollow:
             # Convert wall thickness from blocks to feet
-            # The signed distance 'dist' is in feet, so thickness must be too
             thickness_feet = self.thickness * block_feet
             
-            # A block is part of the wall if its distance from the boundary
-            # is less than the wall thickness. We hollow out blocks that are
-            # deeper inside than the wall thickness.
-            # 
             # Add a small margin (0.5 blocks) to ensure watertight walls
-            # by being conservative about what we hollow out.
             inner_margin = 0.5 * block_feet
             
-            # Only hollow if we're clearly deep inside (distance from boundary
-            # exceeds wall thickness + safety margin)
+            # Only hollow if we're clearly deep inside
             if dist > (thickness_feet + inner_margin):
                 return False  # This block is in the hollow void
         

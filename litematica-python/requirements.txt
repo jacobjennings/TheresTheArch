@@ -1,0 +1,5 @@
+# Litematica Python Library Requirements
+
+# NBT library for Minecraft NBT file format
+NBT>=1.5.0
+
