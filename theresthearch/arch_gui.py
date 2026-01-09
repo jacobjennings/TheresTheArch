@@ -33,6 +33,7 @@ def get_settings_path() -> Path:
 DEFAULT_SETTINGS = {
     'scale': 0.33,
     'girth_scale': 0.33,
+    'leg_thickness_scale': 1.0,
     'lock_scales': True,
     'hollow': True,
     'thickness': 1,
@@ -91,6 +92,7 @@ class ArchGeneratorGUI:
         # Variables (initialized from saved settings)
         self.scale_var = tk.DoubleVar(value=self.settings['scale'])
         self.girth_scale_var = tk.DoubleVar(value=self.settings['girth_scale'])
+        self.leg_thickness_scale_var = tk.DoubleVar(value=self.settings['leg_thickness_scale'])
         self.lock_scales_var = tk.BooleanVar(value=self.settings['lock_scales'])
         self.hollow_var = tk.BooleanVar(value=self.settings['hollow'])
         self.thickness_var = tk.IntVar(value=self.settings['thickness'])
@@ -135,6 +137,7 @@ class ArchGeneratorGUI:
         settings = {
             'scale': self.scale_var.get(),
             'girth_scale': self.girth_scale_var.get(),
+            'leg_thickness_scale': self.leg_thickness_scale_var.get(),
             'lock_scales': self.lock_scales_var.get(),
             'hollow': self.hollow_var.get(),
             'thickness': self.thickness_var.get(),
@@ -234,6 +237,21 @@ class ArchGeneratorGUI:
         self.girth_label = ttk.Label(scale_frame, text="0.50 (315 blocks wide)")
         self.girth_label.grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
         
+        # Leg thickness scale (chunkiness)
+        ttk.Label(scale_frame, text="Leg Thickness:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.leg_thickness_slider = ttk.Scale(
+            scale_frame,
+            from_=0.5,
+            to=5.0,
+            orient=tk.HORIZONTAL,
+            variable=self.leg_thickness_scale_var,
+            command=lambda _: self.on_leg_thickness_changed()
+        )
+        self.leg_thickness_slider.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=5)
+        
+        self.leg_thickness_label = ttk.Label(scale_frame, text="1.00× (proportional)")
+        self.leg_thickness_label.grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
+        
         scale_frame.columnconfigure(1, weight=1)
         
         ttk.Label(
@@ -241,7 +259,14 @@ class ArchGeneratorGUI:
             text="Height and width can be scaled independently. 1.0 = Full size (630 blocks)",
             font=("Arial", 8),
             foreground="gray"
-        ).grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+        ).grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(0, 2))
+        
+        ttk.Label(
+            scale_frame,
+            text="Leg Thickness makes the triangular cross-section chunkier. Increase for smaller scales.",
+            font=("Arial", 8),
+            foreground="gray"
+        ).grid(row=5, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
         
         # Structure Options
         struct_frame = ttk.LabelFrame(main_frame, text="Structure Options", padding="10")
@@ -444,6 +469,11 @@ class ArchGeneratorGUI:
         self.schedule_preview_update()
         self.schedule_settings_save()
     
+    def on_leg_thickness_changed(self):
+        """Handle leg thickness scale slider change."""
+        self.schedule_preview_update()
+        self.schedule_settings_save()
+    
     def on_primary_selected(self, event=None):
         """Handle primary block selection."""
         display_name = self.primary_block_display.get()
@@ -482,6 +512,7 @@ class ArchGeneratorGUI:
         try:
             scale = self.scale_var.get()
             girth_scale = self.girth_scale_var.get()
+            leg_thickness_scale = self.leg_thickness_scale_var.get()
             hollow = self.hollow_var.get()
             thickness = self.thickness_var.get()
             primary = self.primary_block_var.get()
@@ -493,6 +524,13 @@ class ArchGeneratorGUI:
             self.scale_label.config(text=f"{scale:.2f} ({height} blocks tall)")
             self.girth_label.config(text=f"{girth_scale:.2f} ({width} blocks wide)")
             
+            # Update leg thickness label with computed base width
+            base_leg_blocks = int(54 * girth_scale * leg_thickness_scale)
+            if leg_thickness_scale == 1.0:
+                self.leg_thickness_label.config(text=f"{leg_thickness_scale:.2f}× (proportional, {base_leg_blocks} blocks)")
+            else:
+                self.leg_thickness_label.config(text=f"{leg_thickness_scale:.2f}× ({base_leg_blocks} blocks at base)")
+            
             # Create generator
             generator = ArchGenerator(
                 scale=scale,
@@ -500,7 +538,8 @@ class ArchGeneratorGUI:
                 hollow=hollow,
                 thickness=thickness,
                 primary_block=primary,
-                corner_block=corner
+                corner_block=corner,
+                leg_thickness_scale=leg_thickness_scale
             )
             
             # Get dimensions
@@ -574,6 +613,7 @@ class ArchGeneratorGUI:
             # Get parameters
             scale = self.scale_var.get()
             girth_scale = self.girth_scale_var.get()
+            leg_thickness_scale = self.leg_thickness_scale_var.get()
             hollow = self.hollow_var.get()
             thickness = self.thickness_var.get()
             primary = self.primary_block_var.get()
@@ -597,7 +637,8 @@ class ArchGeneratorGUI:
                         hollow=hollow,
                         thickness=thickness,
                         primary_block=primary,
-                        corner_block=corner
+                        corner_block=corner,
+                        leg_thickness_scale=leg_thickness_scale
                     )
                     
                     def progress(current, total, message):

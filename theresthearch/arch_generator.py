@@ -44,7 +44,7 @@ class ArchGenerator:
     
     def __init__(self, scale: float = 1.0, girth_scale: float = 1.0, hollow: bool = False, 
                  thickness: int = 1, primary_block: str = "minecraft:iron_block",
-                 corner_block: Optional[str] = None):
+                 corner_block: Optional[str] = None, leg_thickness_scale: float = 1.0):
         """
         Initialize arch generator.
         
@@ -55,9 +55,13 @@ class ArchGenerator:
             thickness: Thickness of arch walls (if hollow)
             primary_block: Block ID for main structure
             corner_block: Block ID for corners/edges (None = use primary)
+            leg_thickness_scale: Scale factor for leg chunkiness (1.0 = proportional to girth_scale)
+                                 Higher values make the triangular cross-section thicker,
+                                 useful for smaller arches where proportional thickness looks too thin.
         """
         self.scale = scale
         self.girth_scale = girth_scale
+        self.leg_thickness_scale = leg_thickness_scale
         self.hollow = hollow
         self.thickness = max(1, thickness)
         self.primary_block = primary_block
@@ -68,8 +72,12 @@ class ArchGenerator:
         self.design_width = int(self.ORIGINAL_WIDTH * girth_scale)
         
         # Calculate leg widths at base and top (scaled)
-        self.leg_base_width = int(self.LEG_BASE_WIDTH * girth_scale)
-        self.leg_top_width = int(self.LEG_TOP_WIDTH * girth_scale)
+        # leg_thickness_scale allows making legs chunkier independently of overall scale
+        # Enforce minimums to ensure connectivity at small scales:
+        # - leg_top_width minimum of 3 ensures the arch can connect at the peak
+        # - leg_base_width minimum of 5 ensures visible structure at the base
+        self.leg_base_width = max(5, int(self.LEG_BASE_WIDTH * girth_scale * leg_thickness_scale))
+        self.leg_top_width = max(3, int(self.LEG_TOP_WIDTH * girth_scale * leg_thickness_scale))
 
         # Add padding to accommodate leg thickness extending beyond the centerline span
         # Leg extends outwards by approx 2/3 height of triangle ~ 35 feet.
@@ -80,8 +88,12 @@ class ArchGenerator:
         # Actual schematic dimensions
         # Width needs padding on both sides
         self.width = self.design_width + 2 * self.padding
-        # Height needs padding at the top for the flat face of the triangle
-        self.height = self.design_height + self.padding
+        # Height needs extra padding at the top for the triangular cross-section
+        # At the peak, the triangle extends above the curve point by ~leg_width * sqrt(3) / 3
+        # Use leg_base_width for safety margin (it's larger than top width)
+        # Add extra factor for thicker legs which extend further
+        height_padding = int(self.leg_base_width * 2) + 10
+        self.height = self.design_height + height_padding
         
         # Precompute catenary bounds to map block grid to full arch shape
         # y_peak is height at center (x=0)
@@ -117,15 +129,19 @@ class ArchGenerator:
         as the arch tapers. Without quantization, continuous float widths cause
         irregular stepping when rasterized to blocks.
         """
+        # Base and top widths already include leg_thickness_scale
+        base_width_feet = self.LEG_BASE_WIDTH * self.leg_thickness_scale
+        top_width_feet = self.LEG_TOP_WIDTH * self.leg_thickness_scale
+        
         if y_feet >= self.A:  # Top of arch formula max
-            return self.LEG_TOP_WIDTH
+            return top_width_feet
              
         # Map Y feet to ratio [0, 1]
         ratio = (y_feet - self.y_min) / self.y_range
         ratio = max(0.0, min(1.0, ratio))
         
-        # Calculate continuous width first
-        continuous_width = self.LEG_BASE_WIDTH - (self.LEG_BASE_WIDTH - self.LEG_TOP_WIDTH) * ratio
+        # Calculate continuous width first (with thickness scale applied)
+        continuous_width = base_width_feet - (base_width_feet - top_width_feet) * ratio
         
         # QUANTIZE: Convert to block units, floor to integer, convert back to feet
         # This ensures the triangle size only changes at clean block boundaries
@@ -230,9 +246,10 @@ class ArchGenerator:
         
         # Add padding for the rotated triangle vertex. 
         # MUST use leg_base_width (max width) to ensure we don't clip the bottom 
-        # where the leg is wide. leg_top_width is too small for the base.
-        # Safety factor of 2.5x base width + extra buffer.
-        return max(0, y_blocks + int(self.leg_base_width * 2.5) + 20)
+        # where the leg is wide. At the peak, the triangle extends further due to
+        # its orientation (nearly vertical normal direction).
+        # Use generous buffer to account for thicker legs at smaller scales.
+        return max(0, y_blocks + int(self.leg_base_width * 3) + 30)
     
     def get_quantized_leg_width_blocks(self, y_block: int) -> int:
         """
@@ -337,6 +354,7 @@ class ArchGenerator:
         # Project onto normal (u = radial distance, v = Z distance)
         u = dx * nx + dy_pt * ny
         v = z_feet
+        
         
         # 4. Triangle Check (SDF Method)
         # ANTI-ALIASING: Use quantized leg size based on BLOCK Y coordinate
@@ -550,10 +568,20 @@ class ArchGenerator:
                 connected.add(pos)
                 to_check.add(pos)
         
+        # Use 26-connectivity (including diagonals) to handle tapering arch where
+        # blocks at higher levels might only be diagonally connected to those below
+        neighbors_26 = [
+            (dx, dy, dz)
+            for dx in [-1, 0, 1]
+            for dy in [-1, 0, 1]
+            for dz in [-1, 0, 1]
+            if not (dx == 0 and dy == 0 and dz == 0)
+        ]
+        
         while to_check:
             current = to_check.pop()
             cx, cy, cz = current
-            for dx, dy, dz in [(-1,0,0), (1,0,0), (0,-1,0), (0,1,0), (0,0,-1), (0,0,1)]:
+            for dx, dy, dz in neighbors_26:
                 neighbor = (cx + dx, cy + dy, cz + dz)
                 if neighbor in cleaned_blocks and neighbor not in connected:
                     connected.add(neighbor)
@@ -678,12 +706,13 @@ class ArchGenerator:
 
 
 # Keep the same create_simple_arch function for compatibility
-def create_simple_arch(scale: float = 0.33, girth_scale: float = None, output_file: str = "gateway_arch.litematic"):
+def create_simple_arch(scale: float = 0.33, girth_scale: float = None, leg_thickness_scale: float = 1.0, 
+                       output_file: str = "gateway_arch.litematic"):
     """Create a simple Gateway Arch schematic (convenience function)."""
     if girth_scale is None:
         girth_scale = scale
     
-    print(f"Generating Gateway Arch at scale {scale} (girth {girth_scale})...")
+    print(f"Generating Gateway Arch at scale {scale} (girth {girth_scale}, thickness {leg_thickness_scale})...")
     
     generator = ArchGenerator(
         scale=scale,
@@ -691,7 +720,8 @@ def create_simple_arch(scale: float = 0.33, girth_scale: float = None, output_fi
         hollow=True,
         thickness=1,
         primary_block="minecraft:iron_block",
-        corner_block=None
+        corner_block=None,
+        leg_thickness_scale=leg_thickness_scale
     )
     
     # Show dimensions
