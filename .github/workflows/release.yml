@@ -5,9 +5,11 @@ name: Release
 #
 # Artifacts per OS:
 #   Windows  -> TheresTheArch-windows.exe        (windowed, double-click to run)
-#   macOS    -> TheresTheArch-macos-arm64.dmg    (Apple Silicon)
-#            -> TheresTheArch-macos-intel.dmg    (Intel)   drag the app to Applications
+#   macOS    -> TheresTheArch-macos-arm64.dmg    (Apple Silicon; drag to Applications)
 #   Linux    -> TheresTheArch-linux.AppImage     (mark executable, double-click)
+#
+# Note: GitHub-hosted Intel macOS runners are retired, so only Apple Silicon
+# .dmg builds are produced. Intel Macs should run from source (see README).
 # Plus the console CLI binaries for terminal users.
 #
 # The apps are NOT code-signed, so first launch shows a one-time "unidentified
@@ -35,9 +37,6 @@ jobs:
             family: linux
           - os: macos-14          # Apple Silicon (arm64)
             label: macos-arm64
-            family: macos
-          - os: macos-13          # Intel (x86_64)
-            label: macos-intel
             family: macos
           - os: windows-latest
             label: windows
