@@ -4,9 +4,10 @@ name: Release
 # GitHub Release whenever a version tag (e.g. v1.0.0) is pushed.
 #
 # Artifacts per OS:
-#   Windows  -> TheresTheArch-windows.exe   (windowed, double-click to run)
-#   macOS    -> TheresTheArch-macos.dmg     (drag the app to Applications)
-#   Linux    -> TheresTheArch-linux.AppImage (mark executable, double-click)
+#   Windows  -> TheresTheArch-windows.exe        (windowed, double-click to run)
+#   macOS    -> TheresTheArch-macos-arm64.dmg    (Apple Silicon)
+#            -> TheresTheArch-macos-intel.dmg    (Intel)   drag the app to Applications
+#   Linux    -> TheresTheArch-linux.AppImage     (mark executable, double-click)
 # Plus the console CLI binaries for terminal users.
 #
 # The apps are NOT code-signed, so first launch shows a one-time "unidentified
@@ -31,10 +32,16 @@ jobs:
         include:
           - os: ubuntu-latest
             label: linux
-          - os: macos-latest
-            label: macos
+            family: linux
+          - os: macos-14          # Apple Silicon (arm64)
+            label: macos-arm64
+            family: macos
+          - os: macos-13          # Intel (x86_64)
+            label: macos-intel
+            family: macos
           - os: windows-latest
             label: windows
+            family: windows
 
     steps:
       - uses: actions/checkout@v4
@@ -75,29 +82,29 @@ jobs:
 
       # ---- Windows: portable windowed .exe ----
       - name: Package (Windows)
-        if: matrix.label == 'windows'
+        if: matrix.family == 'windows'
         shell: bash
         run: |
-          mv "dist/TheresTheArch.exe" "release/TheresTheArch-windows.exe"
-          mv "dist/theresthearch-cli.exe" "release/theresthearch-cli-windows.exe"
+          mv "dist/TheresTheArch.exe" "release/TheresTheArch-${{ matrix.label }}.exe"
+          mv "dist/theresthearch-cli.exe" "release/theresthearch-cli-${{ matrix.label }}.exe"
 
       # ---- macOS: ad-hoc sign the .app, wrap it in a drag-to-install .dmg ----
       # (ad-hoc signing avoids the "app is damaged" error on Apple Silicon; the
       #  Gatekeeper "unidentified developer" prompt still appears once.)
       - name: Package (macOS)
-        if: matrix.label == 'macos'
+        if: matrix.family == 'macos'
         shell: bash
         run: |
           codesign --force --deep --sign - "dist/TheresTheArch.app"
           mkdir -p dmg
           cp -R "dist/TheresTheArch.app" "dmg/TheresTheArch.app"
           ln -s /Applications "dmg/Applications"
-          hdiutil create -volname "TheresTheArch" -srcfolder dmg -ov -format UDZO "release/TheresTheArch-macos.dmg"
-          mv "dist/theresthearch-cli" "release/theresthearch-cli-macos"
+          hdiutil create -volname "TheresTheArch" -srcfolder dmg -ov -format UDZO "release/TheresTheArch-${{ matrix.label }}.dmg"
+          mv "dist/theresthearch-cli" "release/theresthearch-cli-${{ matrix.label }}"
 
       # ---- Linux: bundle the binary into a double-click AppImage ----
       - name: Package (Linux)
-        if: matrix.label == 'linux'
+        if: matrix.family == 'linux'
         shell: bash
         run: |
           set -e
@@ -113,8 +120,8 @@ jobs:
           chmod +x AppDir/AppRun AppDir/usr/bin/TheresTheArch
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool AppDir "release/TheresTheArch-linux.AppImage"
-          mv dist/theresthearch-cli release/theresthearch-cli-linux
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool AppDir "release/TheresTheArch-${{ matrix.label }}.AppImage"
+          mv dist/theresthearch-cli release/theresthearch-cli-${{ matrix.label }}
 
       - name: List artifacts
         shell: bash
