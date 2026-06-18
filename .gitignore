@@ -214,3 +214,6 @@ __marimo__/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Editor local history
+.history/
