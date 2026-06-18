@@ -2,6 +2,25 @@
 
 A project for generating Minecraft schematics using Litematica, starting with the Saint Louis (Gateway) Arch.
 
+## Download (no command line needed)
+
+Grab a prebuilt app from the [**Releases**](https://github.com/jacobjennings/TheresTheArch/releases)
+page — no Python or terminal required:
+
+| OS | Download | How to run |
+|----|----------|-----------|
+| **Windows** | `TheresTheArch-windows.exe` | Double-click. On first launch, SmartScreen may warn — click **More info → Run anyway**. |
+| **macOS** | `TheresTheArch-macos.dmg` | Open the `.dmg`, drag the app to **Applications**. First launch: **right-click → Open** to get past Gatekeeper. |
+| **Linux** | `TheresTheArch-linux.AppImage` | `chmod +x` it, then double-click (or run it). |
+
+The apps are **not code-signed**, so the one-time "unidentified developer"
+prompt above is expected. Each release also includes console `theresthearch-cli-*`
+binaries for terminal users. Releases are built automatically by
+[GitHub Actions](.github/workflows/release.yml) when a `v*` tag is pushed.
+
+> macOS builds are produced on Apple Silicon (arm64). Intel Macs should use the
+> "run from source" instructions below.
+
 ## AI Disclosure
 
 This project was developed with substantial assistance from AI coding tools.

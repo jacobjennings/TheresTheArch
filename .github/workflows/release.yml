@@ -1,7 +1,17 @@
 name: Release
 
-# Build standalone executables and attach them to a GitHub Release whenever a
-# version tag (e.g. v1.0.0) is pushed.
+# Build double-clickable apps (no command line needed) and attach them to a
+# GitHub Release whenever a version tag (e.g. v1.0.0) is pushed.
+#
+# Artifacts per OS:
+#   Windows  -> TheresTheArch-windows.exe   (windowed, double-click to run)
+#   macOS    -> TheresTheArch-macos.dmg     (drag the app to Applications)
+#   Linux    -> TheresTheArch-linux.AppImage (mark executable, double-click)
+# Plus the console CLI binaries for terminal users.
+#
+# The apps are NOT code-signed, so first launch shows a one-time "unidentified
+# developer" (macOS Gatekeeper) / "Windows protected your PC" (SmartScreen)
+# prompt that users click through. Removing those needs paid signing certs.
 on:
   push:
     tags:
@@ -37,8 +47,19 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip NBT pyinstaller
 
-      # Both entry points rely on sys.path manipulation to import the bundled
-      # `litematica` package, so both source dirs must be on PyInstaller's path.
+      # GUI app: --windowed means double-clicking opens the UI with no terminal
+      # window. Both source dirs must be on PyInstaller's path because the entry
+      # points import the bundled `litematica`/`arch_generator` via sys.path.
+      - name: Build GUI app
+        shell: bash
+        run: >
+          pyinstaller --onefile --windowed --clean --noconfirm
+          --name TheresTheArch
+          --paths theresthearch --paths litematica-python
+          --hidden-import nbt --hidden-import litematica --hidden-import arch_generator
+          theresthearch/arch_gui.py
+
+      # Console CLI binary, shipped as a bonus for terminal users.
       - name: Build CLI binary
         shell: bash
         run: >
@@ -48,33 +69,65 @@ jobs:
           --hidden-import nbt --hidden-import litematica --hidden-import arch_generator
           theresthearch/arch_cli.py
 
-      - name: Build GUI binary
+      - name: Prepare release dir
         shell: bash
-        run: >
-          pyinstaller --onefile --clean --noconfirm
-          --name theresthearch-gui
-          --paths theresthearch --paths litematica-python
-          --hidden-import nbt --hidden-import litematica --hidden-import arch_generator
-          theresthearch/arch_gui.py
+        run: mkdir -p release
 
-      - name: Collect and rename artifacts
+      # ---- Windows: portable windowed .exe ----
+      - name: Package (Windows)
+        if: matrix.label == 'windows'
         shell: bash
         run: |
-          mkdir -p release
-          ext=""
-          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
-          mv "dist/theresthearch-cli$ext" "release/theresthearch-cli-${{ matrix.label }}$ext"
-          mv "dist/theresthearch-gui$ext" "release/theresthearch-gui-${{ matrix.label }}$ext"
-          ls -la release
+          mv "dist/TheresTheArch.exe" "release/TheresTheArch-windows.exe"
+          mv "dist/theresthearch-cli.exe" "release/theresthearch-cli-windows.exe"
+
+      # ---- macOS: ad-hoc sign the .app, wrap it in a drag-to-install .dmg ----
+      # (ad-hoc signing avoids the "app is damaged" error on Apple Silicon; the
+      #  Gatekeeper "unidentified developer" prompt still appears once.)
+      - name: Package (macOS)
+        if: matrix.label == 'macos'
+        shell: bash
+        run: |
+          codesign --force --deep --sign - "dist/TheresTheArch.app"
+          mkdir -p dmg
+          cp -R "dist/TheresTheArch.app" "dmg/TheresTheArch.app"
+          ln -s /Applications "dmg/Applications"
+          hdiutil create -volname "TheresTheArch" -srcfolder dmg -ov -format UDZO "release/TheresTheArch-macos.dmg"
+          mv "dist/theresthearch-cli" "release/theresthearch-cli-macos"
+
+      # ---- Linux: bundle the binary into a double-click AppImage ----
+      - name: Package (Linux)
+        if: matrix.label == 'linux'
+        shell: bash
+        run: |
+          set -e
+          mkdir -p AppDir/usr/bin
+          cp dist/TheresTheArch AppDir/usr/bin/TheresTheArch
+          cp assets/icon.png AppDir/theresthearch.png
+          printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=TheresTheArch' \
+            'Comment=Generate Minecraft Gateway Arch schematics' 'Exec=TheresTheArch' \
+            'Icon=theresthearch' 'Categories=Utility;Game;' 'Terminal=false' \
+            > AppDir/theresthearch.desktop
+          printf '%s\n' '#!/bin/bash' 'HERE="$(dirname "$(readlink -f "$0")")"' \
+            'exec "$HERE/usr/bin/TheresTheArch" "$@"' > AppDir/AppRun
+          chmod +x AppDir/AppRun AppDir/usr/bin/TheresTheArch
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool AppDir "release/TheresTheArch-linux.AppImage"
+          mv dist/theresthearch-cli release/theresthearch-cli-linux
+
+      - name: List artifacts
+        shell: bash
+        run: ls -la release
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: release/*
           generate_release_notes: true
 
-      - name: Upload build artifacts (non-tag runs)
+      - name: Upload workflow artifacts (non-tag runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
