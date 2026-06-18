@@ -14,11 +14,12 @@ def read_file(filename):
 setup(
     name='litematica-python',
     version='1.0.0',
-    author='TheresTheArch',
+    author='Jacob Jennings',
     description='Python library for reading and writing Litematica schematic files',
     long_description=read_file('README.md'),
     long_description_content_type='text/markdown',
-    url='https://github.com/jacob/TheresTheArch',
+    url='https://github.com/jacobjennings/TheresTheArch',
+    license='MIT',
     packages=find_packages(),
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -39,9 +40,9 @@ setup(
     ],
     keywords='minecraft litematica schematic nbt',
     project_urls={
-        'Documentation': 'https://github.com/jacob/TheresTheArch/blob/main/litematica-python/README.md',
-        'Source': 'https://github.com/jacob/TheresTheArch',
-        'Tracker': 'https://github.com/jacob/TheresTheArch/issues',
+        'Documentation': 'https://github.com/jacobjennings/TheresTheArch/blob/main/litematica-python/README.md',
+        'Source': 'https://github.com/jacobjennings/TheresTheArch',
+        'Tracker': 'https://github.com/jacobjennings/TheresTheArch/issues',
     },
 )
 

@@ -309,11 +309,14 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## License
 
-See LICENSE file for details.
+MIT — see the [LICENSE](LICENSE) file. This is an independent, from-scratch
+Python implementation of the `.litematic` format; no code from the upstream mod
+is copied here.
 
 ## Credits
 
-Based on the Litematica mod by maruohon:
+File-format understanding and naming derived from the Litematica mod by
+**maruohon** (licensed under LGPL-3.0):
 - https://github.com/maruohon/litematica
 
 ## See Also

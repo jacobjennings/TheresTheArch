@@ -49,7 +49,7 @@ The real Gateway Arch (visible in reference image) has:
 
 New implementation properly generates this structure using leg-based geometry instead of radial distance calculations.
 
-See [ARCH_CHANGES.md](ARCH_CHANGES.md) for detailed technical explanation.
+See [theresthearch/README.md](theresthearch/README.md#design--geometry) for the technical explanation.
 
 ## Version 1.2.0 - Girth Scale & Performance
 

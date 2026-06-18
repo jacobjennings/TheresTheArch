@@ -1,3 +1,4 @@
 [submodule "litematica"]
 	path = litematica
-	url = git@github.com:maruohon/litematica.git
+	url = https://github.com/maruohon/litematica.git
+	shallow = true

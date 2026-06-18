@@ -185,6 +185,47 @@ The actual arch is:
 
 This generator converts these dimensions to Minecraft blocks, maintaining the exact proportions.
 
+## Design & Geometry
+
+The generator models the arch as **two separate legs** (not a single column or a
+radial tube) that taper as they rise and meet at the apex — matching the real
+structure, where you can walk between the legs at ground level.
+
+### Coordinate system
+
+- **X axis** — the arch span (left to right when facing it). The left leg
+  occupies `X ∈ [0, leg_width)`, the right leg `X ∈ [width - leg_width, width)`,
+  with an open gap between them.
+- **Y axis** — height (ground to apex). Height at a given X follows the catenary
+  equation above.
+- **Z axis** — depth (front to back), perpendicular to the span. Each leg is
+  centered in Z and spans `leg_width` there.
+
+### Leg taper
+
+Each leg is widest at the base and narrowest at the top, interpolated linearly
+with height:
+
+- Base: 54 ft per side (scaled by `girth_scale`)
+- Top: 17 ft per side (scaled by `girth_scale`)
+
+The cross-section is currently a **rectangle** (a simplification of the real
+arch's equilateral-triangle cross-section). Triangular cross-sections and an
+interior framework are possible future refinements.
+
+### Scaling
+
+- `scale` controls height: `height ≈ 630 ft × scale`.
+- `girth_scale` (defaults to `scale`) controls the span and leg widths
+  independently, so you can make tall-and-thin or short-and-wide variants while
+  keeping `scale == girth_scale` for authentic proportions.
+
+### Material math
+
+When estimating quantities: 1 stack = 64 blocks, and 1 shulker box = 27 stacks =
+1,728 blocks. The CLI/GUI report counts in all three units to help with
+gathering and storage planning.
+
 ## Architecture
 
 ```
@@ -217,10 +258,9 @@ create_simple_arch(scale=0.2, output_file="test_arch.litematic")
 ```
 
 Output:
-- Height: 126 blocks
-- Width: 126 blocks
-- ~50,000 blocks
-- Generation time: ~30 seconds
+- Height: ~126 blocks
+- Width: ~126 blocks
+- Block count and timing: see the live preview (CLI/GUI) before generating
 
 ### Medium Arch (Recommended)
 
@@ -231,10 +271,9 @@ create_simple_arch(scale=0.5, output_file="medium_arch.litematic")
 ```
 
 Output:
-- Height: 315 blocks
-- Width: 315 blocks
-- ~300,000 blocks
-- Generation time: ~5 minutes
+- Height: ~315 blocks
+- Width: ~315 blocks
+- Block count and timing: see the live preview (CLI/GUI) before generating
 
 ### Full Scale Arch
 
@@ -254,10 +293,10 @@ schematic.save("full_scale_arch.litematic")
 ```
 
 Output:
-- Height: 630 blocks
-- Width: 630 blocks
-- ~2,000,000 blocks
-- Generation time: ~30 minutes
+- Height: ~630 blocks
+- Width: ~630 blocks
+- Full scale is very large (millions of blocks); use the live preview to check
+  the exact count and consider a hollow build
 
 ## Known Limitations
 
@@ -265,10 +304,13 @@ Output:
 
 ## Performance Notes
 
-- **Memory**: Large arches (scale > 1.0) require several GB of RAM
-- **Generation Time**: Proportional to scale³ (doubling scale = 8x time)
-- **File Size**: Hollow arches are ~70% smaller than solid
-- **Hollow Recommended**: Use hollow for scale > 0.5
+- **Generation cost grows roughly with volume** — doubling the scale increases
+  block count (and time/memory) by roughly 8×. Large scales can take a while and
+  use a lot of memory.
+- **Hollow builds are much cheaper** than solid ones in both block count and
+  file size — recommended for scale > 0.5.
+- Use the **live preview** to see exact dimensions and block counts before
+  committing to a generation run.
 
 ## Troubleshooting
 

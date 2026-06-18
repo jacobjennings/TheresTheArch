@@ -351,38 +351,20 @@ corner_block="minecraft:oak_log"
 - HDD storage
 - Low RAM
 
-### Memory Usage
+### Memory, file size, and time
 
-**Approximate RAM Requirements:**
-- Scale 0.3: ~500 MB
-- Scale 0.5: ~1 GB
-- Scale 0.75: ~2 GB
-- Scale 1.0: ~4 GB
-- Scale 2.0: ~15 GB
+Generation cost scales roughly with the block count (volume), so doubling the
+scale increases memory, file size, and time by roughly 8×. Concrete numbers
+depend heavily on your machine, the scale, and whether the build is hollow.
 
-**To Reduce Memory:**
-1. Use hollow construction
-2. Reduce scale
-3. Close other applications
-4. Increase swap space
+Rather than relying on fixed estimates:
 
-### File Size
-
-**Approximate .litematic File Sizes:**
-- Scale 0.3 hollow: ~5 MB
-- Scale 0.5 hollow: ~20 MB
-- Scale 0.75 hollow: ~50 MB
-- Scale 1.0 hollow: ~100 MB
-- Scale 1.0 solid: ~300 MB
-
-### Generation Time
-
-**Approximate Times (modern CPU):**
-- Scale 0.3: 30 seconds - 1 minute
-- Scale 0.5: 2-5 minutes
-- Scale 0.75: 10-15 minutes
-- Scale 1.0: 20-30 minutes
-- Scale 2.0: 2-3 hours
+- **Check the live preview** (CLI/GUI) for the exact block count before
+  generating — that's the best predictor of cost.
+- **Prefer hollow construction** for large scales; it dramatically reduces block
+  count, memory, and file size versus solid.
+- **To reduce memory:** lower the scale, use hollow construction, and close
+  other applications.
 
 ## Troubleshooting
 

@@ -1,0 +1,82 @@
+name: Release
+
+# Build standalone executables and attach them to a GitHub Release whenever a
+# version tag (e.g. v1.0.0) is pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+          - os: macos-latest
+            label: macos
+          - os: windows-latest
+            label: windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip NBT pyinstaller
+
+      # Both entry points rely on sys.path manipulation to import the bundled
+      # `litematica` package, so both source dirs must be on PyInstaller's path.
+      - name: Build CLI binary
+        shell: bash
+        run: >
+          pyinstaller --onefile --clean --noconfirm
+          --name theresthearch-cli
+          --paths theresthearch --paths litematica-python
+          --hidden-import nbt --hidden-import litematica --hidden-import arch_generator
+          theresthearch/arch_cli.py
+
+      - name: Build GUI binary
+        shell: bash
+        run: >
+          pyinstaller --onefile --clean --noconfirm
+          --name theresthearch-gui
+          --paths theresthearch --paths litematica-python
+          --hidden-import nbt --hidden-import litematica --hidden-import arch_generator
+          theresthearch/arch_gui.py
+
+      - name: Collect and rename artifacts
+        shell: bash
+        run: |
+          mkdir -p release
+          ext=""
+          if [ "$RUNNER_OS" = "Windows" ]; then ext=".exe"; fi
+          mv "dist/theresthearch-cli$ext" "release/theresthearch-cli-${{ matrix.label }}$ext"
+          mv "dist/theresthearch-gui$ext" "release/theresthearch-gui-${{ matrix.label }}$ext"
+          ls -la release
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release/*
+          generate_release_notes: true
+
+      - name: Upload build artifacts (non-tag runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: theresthearch-${{ matrix.label }}
+          path: release/*

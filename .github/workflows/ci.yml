@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }} / py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.9', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+        # The litematica/ submodule is an optional upstream reference; it is not
+        # needed to build or test, so we deliberately do not init submodules.
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip NBT
+
+      - name: Run library test suite
+        run: python litematica-python/test_basic.py
+
+      - name: Smoke-test arch generation
+        run: >
+          python -c "import sys; sys.path[:0] = ['litematica-python', 'theresthearch'];
+          from arch_generator import ArchGenerator;
+          ArchGenerator(scale=0.1).generate().save('ci_smoke_arch.litematic');
+          import os; print('Generated', os.path.getsize('ci_smoke_arch.litematic'), 'bytes')"

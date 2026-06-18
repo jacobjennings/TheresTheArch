@@ -1,28 +1,46 @@
 # TheresTheArch
 
-A project for generating Minecraft schematics using Litematica, starting with the Saint Louis Arch.
+A project for generating Minecraft schematics using Litematica, starting with the Saint Louis (Gateway) Arch.
+
+## AI Disclosure
+
+This project was developed with substantial assistance from AI coding tools.
+AI was used to help write the Litematica format library,
+the arch-generation algorithm, and the documentation in this repository. All
+code has been reviewed and exercised by the author (the test suite and a smoke
+generation run in CI), but please treat it accordingly and report anything that
+looks off.
 
 ## Project Structure
 
 ```
 TheresTheArch/
-├── litematica/              # Git submodule: Litematica mod source (Java)
-└── litematica-python/       # Python library for Litematica format
-    ├── litematica.py        # Main library implementation
-    ├── __init__.py          # Package initialization
-    ├── test_basic.py        # Test suite
-    ├── setup.py             # Installation setup
-    ├── requirements.txt     # Python dependencies
-    │
-    └── Documentation/
-        ├── README.md        # Main library documentation
-        ├── INDEX.md         # Documentation index
-        ├── QUICKSTART.md    # Quick start guide
-        ├── EXAMPLES.md      # Comprehensive examples
-        ├── API_REFERENCE.md # Complete API documentation
-        ├── FORMAT.md        # File format specification
-        └── CONTRIBUTING.md  # Contribution guidelines
+├── litematica/              # Git submodule: upstream Litematica mod (reference only, optional)
+├── litematica-python/       # Python library for the .litematic format
+│   ├── litematica.py        # Main library implementation
+│   ├── __init__.py          # Package initialization
+│   ├── test_basic.py        # Test suite
+│   ├── setup.py             # Installation setup
+│   ├── requirements.txt     # Python dependencies
+│   └── *.md                 # Library docs (README, QUICKSTART, EXAMPLES, API_REFERENCE, FORMAT, FEATURES, INDEX, CONTRIBUTING)
+│
+├── theresthearch/           # Gateway Arch generator application
+│   ├── arch_generator.py    # Core generation logic + Python API
+│   ├── arch_cli.py          # Interactive command-line interface
+│   ├── arch_gui.py          # Tkinter GUI
+│   ├── __init__.py          # Package init
+│   └── README.md            # Generator docs and design notes
+│
+├── INSTALL.md               # Installation guide
+├── USAGE_GUIDE.md           # Usage guide
+├── CHANGELOG.md             # Version history
+└── setup.sh                 # One-step environment setup
 ```
+
+> The `litematica/` submodule is only a pointer to the upstream
+> [maruohon/litematica](https://github.com/maruohon/litematica) mod (LGPL-3.0)
+> for reference. It is **not required** to use this project — clone without
+> `--recursive` if you don't need it.
 
 ## Litematica Python Library
 
@@ -180,8 +198,17 @@ See [theresthearch/README.md](theresthearch/README.md) for detailed documentatio
 
 ## License
 
-See LICENSE file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file.
+
+The `litematica-python` library is an independent, from-scratch Python
+implementation of the `.litematic` file format. File formats themselves are not
+copyrightable; no code from the upstream mod is copied or redistributed here.
 
 ## Credits
 
-Format documentation and library implementation based on the Litematica mod by maruohon.
+- File-format understanding and naming derived from the
+  [Litematica mod](https://github.com/maruohon/litematica) by **maruohon**,
+  which is licensed under the GNU LGPL-3.0. The mod is referenced (as an
+  optional git submodule) but not redistributed.
+- Gateway Arch designed by **Eero Saarinen** (completed 1965). Catenary
+  coefficients via [Wikipedia](https://en.wikipedia.org/wiki/Gateway_Arch).
